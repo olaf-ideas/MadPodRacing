@@ -1,6 +1,8 @@
 #ifndef GENETIC_H
 #define GENETIC_H
 
+#include <iostream>
+
 #include "timer.h"
 #include "const.h"
 #include "arena.h"
@@ -21,7 +23,12 @@ struct Gen {
     void mutate() {
 
         if(fast_rand() & 1) {
-            thrust[fast_rand() % GEN_LEN] = fast_rand(0, 10) * fast_rand(0, 10);
+            if(fast_rand() < 7 * FAST_RAND_MAX) {
+                thrust[fast_rand() % GEN_LEN] = -1;
+            }
+            else {
+                thrust[fast_rand() % GEN_LEN] = fast_rand(0, 10) * fast_rand(0, 10);
+            }
         }
         else {
             angle[fast_rand() % GEN_LEN] = fast_float_rand(-MAX_ROTATION_PER_TURN, +MAX_ROTATION_PER_TURN);
@@ -30,7 +37,7 @@ struct Gen {
     }
 
     void shift() {
-        for(int i = 0; i < GEN_LEN; i++) {
+        for(int i = 0; i < GEN_LEN - 1; i++) {
             thrust[i] = thrust[i + 1];
             angle[i] = angle[i + 1];
         }
@@ -64,16 +71,18 @@ struct Genetic {
     }
 
     float play(Gen **gens, int my_id, int op_id) {
-        
-        for(int i = 0; i < ALL_PODS; i++) {
-            arena->pods[i].save();
-        }
 
         for(int turn = 0; turn < GEN_LEN; turn++) {
 
             for(int i = 0; i < ALL_PODS; i++) {
                 arena->pods[i].rotate(gens[i]->angle[turn]);
-                arena->pods[i].thrust(gens[i]->thrust[turn]);
+                
+                if(gens[i]->thrust[turn] == -1) {
+                    arena->pods[i].shield = 4;
+                }
+                else {
+                    arena->pods[i].thrust(gens[i]->thrust[turn]);
+                }
             }
 
             arena->tick();
@@ -91,12 +100,18 @@ struct Genetic {
 
     void solve(Gen *op_gens, int player_id, float time) {
 
+        for(int i = 0; i < ALL_PODS; i++) {
+            arena->pods[i].save();
+        }
+
         int my_id = player_id * 2;
         int op_id = (1 - player_id) * 2;
 
         static Gen *gens[4];
         gens[op_id + 0] = &op_gens[0];
         gens[op_id + 1] = &op_gens[1];
+
+        int steps = 0;
 
         while(timer.get_elapsed() < time) {
 
@@ -111,8 +126,7 @@ struct Genetic {
                 gens[my_id + 1] = &pop[i][1];
 
                 if(i > 1) {
-                    pop[i][0].mutate();
-                    pop[i][1].mutate();
+                    pop[i][fast_rand() & 1].mutate();
                 }
 
                 float score = play(gens, my_id, op_id);
@@ -145,7 +159,11 @@ struct Genetic {
             pop[0][0] = tmp[0];
             pop[0][1] = tmp[1];
 
+            steps++;
+
         }
+
+        std::cerr << "steps: " << steps << '\n';
 
     }
 

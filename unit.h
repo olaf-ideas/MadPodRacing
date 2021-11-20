@@ -37,6 +37,7 @@ struct Unit {
         backup[4] = ang;
         backup[5] = shield;
         backup[6] = boosted;
+        backup[7] = nx_cp;
     }
 
     void load() {
@@ -47,6 +48,7 @@ struct Unit {
         ang = backup[4];
         shield = backup[5];
         boosted = backup[6];
+        nx_cp = backup[7];
     }
 
     void move(float t) {
@@ -115,8 +117,8 @@ bool predict_collision(const Unit *p, const Unit *q, float *collision_time) {
 
 void simulate_bounce(Unit *p, Unit *q) {
 
-    float mp = p->shield ? 0.1f : 1.0f;
-    float mq = q->shield ? 0.1f : 1.0f;
+    float mp = p->shield == 4 ? 0.1f : 1.0f;
+    float mq = q->shield == 4 ? 0.1f : 1.0f;
 
     float dx  = p-> x - q-> x;
     float dy  = p-> y - q-> y;
@@ -144,29 +146,11 @@ void simulate_bounce(Unit *p, Unit *q) {
 
 bool checkpoint_complete(const Unit *pod, const Unit *cp) {
 
-    float dpx = pod->px - pod->x;
-    float dpy = pod->py - pod->y;
-
     float d1x = cp->x - pod->x;
     float d1y = cp->y - pod->y;
 
-    float d2x = cp->x - pod->px;
-    float d2y = cp->y - pod->py;
-
-    float d = dpx * dpx + dpy * dpy;
-
-    if(d1x * d1x + d1y * d1y <= 1000000.0f &&
-       d2x * d2x + d2y * d2y <= 1000000.0f)
-        return true;
-
-    if(d == 0)
-        return false;
-
-    float t = (d1x * dpx + d1y * dpy) / d;
-    float x = d1x + t * dpx;
-    float y = d1y + t * dpy;
-
-    return x * x + y * y <= 1000000.0f;
+    return d1x * d1x + d1y * d1y <= 360000.0f;
+    
 }
 
 float distance(const Unit *p, const Unit *q) {

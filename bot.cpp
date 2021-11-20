@@ -1,9 +1,19 @@
 // *** Start of: /home/olaf/codingame/MadPodRacing/main.cpp *** 
+#undef _GLIBCXX_DEBUG                // disable run-time bound checking, etc
+#pragma GCC optimize("Ofast,inline") // Ofast = O3,fast-math,allow-store-data-races,no-protect-parens
+
+#pragma GCC target("bmi,bmi2,lzcnt,popcnt")                      // bit manipulation
+#pragma GCC target("movbe")                                      // byte swap
+#pragma GCC target("aes,pclmul,rdrnd")                           // encryption
+#pragma GCC target("avx,avx2,f16c,fma,sse3,ssse3,sse4.1,sse4.2") // SIMD
+
 #include <math.h>
 
  // *** Start of: /home/olaf/codingame/MadPodRacing/genetic.h *** 
  #ifndef GENETIC_H
  #define GENETIC_H
+ 
+ #include <iostream>
  
   // *** Start of: /home/olaf/codingame/MadPodRacing/timer.h *** 
   #ifndef TIMER_H
@@ -39,7 +49,7 @@
   
   const float PI = 3.141592653589793f;
   const float TAU = 6.283185307179586f;
-  const float EPS = 1E-5f;
+  const float EPS = 0.00001f;
   
   const int PLAYERS = 2;
   const int MAX_LAPS = 10;
@@ -62,9 +72,9 @@
   const float MAX_ROTATION_PER_TURN = PI / 10;
   
   
-  const int GEN_LEN = 5;
-  const int POP_LEN = 128;
-  const int CP_REWARD = 30'000;
+  const int GEN_LEN = 4;
+  const int POP_LEN = 8;
+  const int CP_REWARD = 60'000;
   
   #endif // CONST_H
   // *** End of: /home/olaf/codingame/MadPodRacing/const.h *** 
@@ -80,6 +90,7 @@
    
    #include <math.h>
    
+   
    struct Unit {
    
        float  x;
@@ -92,7 +103,7 @@
        int nx_cp;
    
        int shield;
-       bool boosted;
+       int boosted;
    
        float px;
        float py;
@@ -112,6 +123,7 @@
            backup[4] = ang;
            backup[5] = shield;
            backup[6] = boosted;
+           backup[7] = nx_cp;
        }
    
        void load() {
@@ -122,6 +134,7 @@
            ang = backup[4];
            shield = backup[5];
            boosted = backup[6];
+           nx_cp = backup[7];
        }
    
        void move(float t) {
@@ -153,6 +166,15 @@
        }
    };
    
+   bool collide(const Unit *p, const Unit *q) {
+   
+       float dx = p->x - q->x;
+       float dy = p->y - q->y;
+       
+       return dx * dx + dy * dy <= 640000.0f;
+   
+   }
+   
    bool predict_collision(const Unit *p, const Unit *q, float *collision_time) {
    
        float dx  = p-> x - q-> x;
@@ -164,7 +186,7 @@
    
        float a = dvx * dvx + dvy * dvy;
    
-       if(a < EPS)  return false;
+       if(a == 0.0f)   return false;
    
        float b = dx * dvx + dy * dvy;
        float c = dx * dx + dy * dy - 640000.0f;
@@ -175,14 +197,14 @@
    
        *collision_time = (- b - sqrt(d)) / a;
    
-       return EPS < *collision_time;
+       return 0 < *collision_time;
    
    }
    
    void simulate_bounce(Unit *p, Unit *q) {
    
-       float mp = p->shield ? 0.1f : 1.0f;
-       float mq = q->shield ? 0.1f : 1.0f;
+       float mp = p->shield == 4 ? 0.1f : 1.0f;
+       float mq = q->shield == 4 ? 0.1f : 1.0f;
    
        float dx  = p-> x - q-> x;
        float dy  = p-> y - q-> y;
@@ -197,8 +219,8 @@
        if(f < 120.0f)  f += 120.f;
        else            f += f;
    
-       int ix = ux * f;
-       int iy = uy * f;
+       float ix = ux * f;
+       float iy = uy * f;
    
        p->vx += ix * mp;
        p->vy += iy * mp;
@@ -210,29 +232,11 @@
    
    bool checkpoint_complete(const Unit *pod, const Unit *cp) {
    
-       float dpx = pod->px - pod->x;
-       float dpy = pod->py - pod->y;
-   
        float d1x = cp->x - pod->x;
        float d1y = cp->y - pod->y;
    
-       float d2x = cp->x - pod->px;
-       float d2y = cp->y - pod->py;
-   
-       float d = dpx * dpx + dpy * dpy;
-   
-       if(d1x * d1x + d1y * d1y <= 1000000.0f &&
-          d2x * d2x + d2y * d2y <= 1000000.0f)
-           return true;
-   
-       if(d == 0)
-           return false;
-   
-       float t = (d1x * dpx + d1y * dpy) / d;
-       float x = d1x + t * dpx;
-       float y = d1y + t * dpy;
-   
-       return x * x + y * y <= 1000000.0f;
+       return d1x * d1x + d1y * d1y <= 360000.0f;
+       
    }
    
    float distance(const Unit *p, const Unit *q) {
@@ -251,10 +255,8 @@
   struct Arena {
   
       Unit pods[ALL_PODS];
-      Unit *players[PLAYERS][PODS_PER_PLAYER];
   
       int laps;
-  
       int checkpoints_count;
       Unit checkpoints[ALL_CHECKPOINTS * MAX_LAPS];
   
@@ -265,7 +267,9 @@
               std::cin >> checkpoints[i].x >> checkpoints[i].y; std::cin.ignore();
           }
   
-          for(int i = checkpoints_count; i < checkpoints_count * (laps + 1); i++) {
+          laps++;
+  
+          for(int i = checkpoints_count; i < checkpoints_count * laps; i++) {
               checkpoints[i].x = checkpoints[i - checkpoints_count].x;
               checkpoints[i].y = checkpoints[i - checkpoints_count].y;
           }
@@ -277,12 +281,35 @@
       void read() {
           
           for(int i = 0; i < ALL_PODS; i++) {
+              int nx_cp = 0;
               std::cin >> pods[i].x >> 
                           pods[i].y >> 
                           pods[i].vx >> 
                           pods[i].vy >> 
                           pods[i].ang >> 
-                          pods[i].nx_cp; std::cin.ignore();
+                          nx_cp; std::cin.ignore();
+              
+              if(pods[i].nx_cp % (checkpoints_count / laps) != nx_cp) {
+                  pods[i].nx_cp ++;
+              }
+  
+              pods[i].ang *= PI / 180.0f;
+          }
+  
+      }
+  
+      void print() {
+  
+          for(int i = 0; i < ALL_PODS; i++) {
+              std::cerr << "pod : " << i << '\n';
+              std::cerr << " x = " << pods[i].x << '\n';
+              std::cerr << " y = " << pods[i].y << '\n';
+              std::cerr << "vx = " << pods[i].vx << '\n';
+              std::cerr << "vy = " << pods[i].vy << '\n';
+              std::cerr << "nx = " << pods[i].nx_cp << '\n';
+              std::cerr << " a = " << pods[i].ang << '\n';
+              std::cerr << " b = " << pods[i].boosted << '\n';
+              std::cerr << "----\n";
           }
   
       }
@@ -314,8 +341,9 @@
                   }
               }
               
-              for(int i = 0; i < ALL_PODS; i++)
+              for(int i = 0; i < ALL_PODS; i++) {
                   pods[i].move(collision_time);
+              }
   
               t += collision_time;
   
@@ -326,14 +354,14 @@
           }
   
           for(int i = 0; i < ALL_PODS; i++) {
+              pods[i].end_round();
+              
               if(pods[i].nx_cp < checkpoints_count &&
                   checkpoint_complete(&pods[i], &checkpoints[pods[i].nx_cp])) {
                   if(++pods[i].nx_cp == checkpoints_count) {
                       pods[i].nx_cp = 0;
                   }
               }
-  
-              pods[i].end_round();
           }
   
       }
@@ -348,24 +376,27 @@
               scores[i] = pods[i].nx_cp * CP_REWARD - distance(&pods[i], &checkpoints[pods[i].nx_cp]);
           }
   
-          int my_runner = scores[my_id] > scores[my_id + 1] ? my_id : my_id + 1;
-          int op_runner = scores[op_id] > scores[op_id + 1] ? op_id : op_id + 1;
+          int my_runner, op_runner, my_blocker;
   
-          int my_blocker = scores[my_id] <= scores[my_id + 1] ? my_id : my_id + 1;
-          int op_blocker = scores[op_id] <= scores[op_id + 1] ? op_id : op_id + 1;
-  
-          if(pods[op_runner].nx_cp == checkpoints_count) {
-              score = -1e9;
-          }
-          else
-          if(pods[my_runner].nx_cp == checkpoints_count) {
-              score = +1e9;
+          if(scores[my_id] > scores[my_id + 1]) {
+              my_runner = my_id;
+              my_blocker = my_id + 1;
           }
           else {
-              score = 2 * (scores[my_runner] - scores[op_runner]) 
-                      - distance(&pods[my_blocker], &pods[op_runner]) 
-                      - distance(&pods[my_blocker], &checkpoints[pods[op_runner].nx_cp]);
+              my_runner = my_id + 1;
+              my_blocker = my_id;
           }
+  
+          if(scores[op_id] > scores[op_id + 1]) {
+              op_runner = op_id;
+          }
+          else {
+              op_runner = op_id + 1;
+          }
+          
+          score = 3 * (scores[my_runner] - scores[op_runner]) 
+                  - 1.0f  * distance(&pods[my_blocker], &pods[op_runner]) 
+                  - 0.03f * distance(&pods[my_blocker], &checkpoints[pods[op_runner].nx_cp]);
   
           return score;
       }
@@ -380,10 +411,13 @@
   
   #include <random>
   
-  const int FAST_RAND_MAX = RAND_MAX;
+  constexpr int FAST_RAND_MAX = 0x7FFF + 1;
   
-  int fast_rand() { // speed it up
-      return rand();
+  inline int fast_rand() {
+      static unsigned int g_seed = 2137;
+  
+      g_seed = (214013 * g_seed + 2531011); 
+      return (g_seed >> 16) & 0x7FFF;
   }
   
   int fast_rand(int a, int b) {
@@ -416,7 +450,12 @@
      void mutate() {
  
          if(fast_rand() & 1) {
-             thrust[fast_rand() % GEN_LEN] = fast_rand(0, 10) * fast_rand(0, 10);
+             if(fast_rand() < 7 * FAST_RAND_MAX) {
+                 thrust[fast_rand() % GEN_LEN] = -1;
+             }
+             else {
+                 thrust[fast_rand() % GEN_LEN] = fast_rand(0, 10) * fast_rand(0, 10);
+             }
          }
          else {
              angle[fast_rand() % GEN_LEN] = fast_float_rand(-MAX_ROTATION_PER_TURN, +MAX_ROTATION_PER_TURN);
@@ -425,7 +464,7 @@
      }
  
      void shift() {
-         for(int i = 0; i < GEN_LEN; i++) {
+         for(int i = 0; i < GEN_LEN - 1; i++) {
              thrust[i] = thrust[i + 1];
              angle[i] = angle[i + 1];
          }
@@ -459,16 +498,18 @@
      }
  
      float play(Gen **gens, int my_id, int op_id) {
-         
-         for(int i = 0; i < ALL_PODS; i++) {
-             arena->pods[i].save();
-         }
  
          for(int turn = 0; turn < GEN_LEN; turn++) {
  
              for(int i = 0; i < ALL_PODS; i++) {
                  arena->pods[i].rotate(gens[i]->angle[turn]);
-                 arena->pods[i].thrust(gens[i]->thrust[turn]);
+                 
+                 if(gens[i]->thrust[turn] == -1) {
+                     arena->pods[i].shield = 4;
+                 }
+                 else {
+                     arena->pods[i].thrust(gens[i]->thrust[turn]);
+                 }
              }
  
              arena->tick();
@@ -486,12 +527,18 @@
  
      void solve(Gen *op_gens, int player_id, float time) {
  
+         for(int i = 0; i < ALL_PODS; i++) {
+             arena->pods[i].save();
+         }
+ 
          int my_id = player_id * 2;
          int op_id = (1 - player_id) * 2;
  
          static Gen *gens[4];
          gens[op_id + 0] = &op_gens[0];
          gens[op_id + 1] = &op_gens[1];
+ 
+         int steps = 0;
  
          while(timer.get_elapsed() < time) {
  
@@ -503,11 +550,10 @@
              for(int i = 0; i < POP_LEN; i++) {
  
                  gens[my_id + 0] = &pop[i][0];
-                 gens[my_id * 2 + 1] = &pop[i][1];
+                 gens[my_id + 1] = &pop[i][1];
  
                  if(i > 1) {
-                     pop[i][0].mutate();
-                     pop[i][1].mutate();
+                     pop[i][fast_rand() & 1].mutate();
                  }
  
                  float score = play(gens, my_id, op_id);
@@ -540,7 +586,11 @@
              pop[0][0] = tmp[0];
              pop[0][1] = tmp[1];
  
+             steps++;
+ 
          }
+ 
+         std::cerr << "steps: " << steps << '\n';
  
      }
  
@@ -556,7 +606,7 @@ Genetic my_solver, op_solver;
 Gen best_genes[2];
 
 int main() {
-
+    
     arena.init();
 
     my_solver.arena = &arena;
@@ -572,6 +622,15 @@ int main() {
 
         arena.read();
 
+        if(turn == 0) {
+            for(int i = 0; i < ALL_PODS; i++) {
+                arena.pods[i].ang = atan2(arena.checkpoints[arena.pods[i].nx_cp].y - arena.pods[i].y,
+                                          arena.checkpoints[arena.pods[i].nx_cp].x - arena.pods[i].x);
+            }
+        }
+
+        arena.print();
+
         timer.start();
 
         float max_time = turn == 0 ? 1000 : 75;
@@ -586,13 +645,26 @@ int main() {
         my_solver.solve(op_gen, 0, max_time * 0.95f);
 
         for(int i = 0; i < PODS_PER_PLAYER; i++) {
-            std::cerr << arena.pods[i].x + cos(arena.pods[i].ang + my_solver.pop[0][0].angle[0]) << ' ';
-            std::cerr << arena.pods[i].y + sin(arena.pods[i].ang + my_solver.pop[0][0].angle[0]) << ' ';
-            std::cerr << my_solver.pop[0][0].thrust[0] << std::endl;
+            std::cout << int(arena.pods[i].x + 1000 * cos(arena.pods[i].ang + my_solver.pop[0][i].angle[0])) << ' ';
+            std::cout << int(arena.pods[i].y + 1000 * sin(arena.pods[i].ang + my_solver.pop[0][i].angle[0])) << ' ';
+
+            if(my_solver.pop[0][i].thrust[0] == -1)
+                std::cout << "SHIELD";
+            else {
+                if(turn == 0)
+                    std::cout << "BOOST";
+                else
+                    std::cout << my_solver.pop[0][i].thrust[0];
+            }
+
+            std::cout << std::endl;
         }
 
         op_solver.shift();
         my_solver.shift();
+
+        best_genes[0] = my_solver.pop[0][0];
+        best_genes[1] = my_solver.pop[0][1];
 
     }
 

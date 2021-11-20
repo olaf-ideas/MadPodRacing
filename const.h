@@ -26,8 +26,8 @@ const int DEFAULT_POD_TIMEOUT = 100;
 const float MAX_ROTATION_PER_TURN = PI / 10;
 
 
-const int GEN_LEN = 8;
-const int POP_LEN = 128;
-const int CP_REWARD = 30'000;
+const int GEN_LEN = 4;
+const int POP_LEN = 8;
+const int CP_REWARD = 60'000;
 
 #endif // CONST_H

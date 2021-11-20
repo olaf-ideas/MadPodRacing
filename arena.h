@@ -9,10 +9,8 @@
 struct Arena {
 
     Unit pods[ALL_PODS];
-    Unit *players[PLAYERS][PODS_PER_PLAYER];
 
     int laps;
-
     int checkpoints_count;
     Unit checkpoints[ALL_CHECKPOINTS * MAX_LAPS];
 
@@ -23,7 +21,9 @@ struct Arena {
             std::cin >> checkpoints[i].x >> checkpoints[i].y; std::cin.ignore();
         }
 
-        for(int i = checkpoints_count; i < checkpoints_count * (laps + 1); i++) {
+        laps++;
+
+        for(int i = checkpoints_count; i < checkpoints_count * laps; i++) {
             checkpoints[i].x = checkpoints[i - checkpoints_count].x;
             checkpoints[i].y = checkpoints[i - checkpoints_count].y;
         }
@@ -35,12 +35,35 @@ struct Arena {
     void read() {
         
         for(int i = 0; i < ALL_PODS; i++) {
+            int nx_cp = 0;
             std::cin >> pods[i].x >> 
                         pods[i].y >> 
                         pods[i].vx >> 
                         pods[i].vy >> 
                         pods[i].ang >> 
-                        pods[i].nx_cp; std::cin.ignore();
+                        nx_cp; std::cin.ignore();
+            
+            if(pods[i].nx_cp % (checkpoints_count / laps) != nx_cp) {
+                pods[i].nx_cp ++;
+            }
+
+            pods[i].ang *= PI / 180.0f;
+        }
+
+    }
+
+    void print() {
+
+        for(int i = 0; i < ALL_PODS; i++) {
+            std::cerr << "pod : " << i << '\n';
+            std::cerr << " x = " << pods[i].x << '\n';
+            std::cerr << " y = " << pods[i].y << '\n';
+            std::cerr << "vx = " << pods[i].vx << '\n';
+            std::cerr << "vy = " << pods[i].vy << '\n';
+            std::cerr << "nx = " << pods[i].nx_cp << '\n';
+            std::cerr << " a = " << pods[i].ang << '\n';
+            std::cerr << " b = " << pods[i].boosted << '\n';
+            std::cerr << "----\n";
         }
 
     }
@@ -72,8 +95,9 @@ struct Arena {
                 }
             }
             
-            for(int i = 0; i < ALL_PODS; i++)
+            for(int i = 0; i < ALL_PODS; i++) {
                 pods[i].move(collision_time);
+            }
 
             t += collision_time;
 
@@ -84,14 +108,14 @@ struct Arena {
         }
 
         for(int i = 0; i < ALL_PODS; i++) {
+            pods[i].end_round();
+            
             if(pods[i].nx_cp < checkpoints_count &&
                 checkpoint_complete(&pods[i], &checkpoints[pods[i].nx_cp])) {
                 if(++pods[i].nx_cp == checkpoints_count) {
                     pods[i].nx_cp = 0;
                 }
             }
-
-            pods[i].end_round();
         }
 
     }
@@ -106,24 +130,26 @@ struct Arena {
             scores[i] = pods[i].nx_cp * CP_REWARD - distance(&pods[i], &checkpoints[pods[i].nx_cp]);
         }
 
-        int my_runner = scores[my_id] > scores[my_id + 1] ? my_id : my_id + 1;
-        int op_runner = scores[op_id] > scores[op_id + 1] ? op_id : op_id + 1;
+        int my_runner, op_runner, my_blocker;
 
-        int my_blocker = scores[my_id] <= scores[my_id + 1] ? my_id : my_id + 1;
-        int op_blocker = scores[op_id] <= scores[op_id + 1] ? op_id : op_id + 1;
-
-        if(pods[op_runner].nx_cp == checkpoints_count) {
-            score = -1e9;
-        }
-        else
-        if(pods[my_runner].nx_cp == checkpoints_count) {
-            score = +1e9;
+        if(scores[my_id] > scores[my_id + 1]) {
+            my_runner = my_id;
+            my_blocker = my_id + 1;
         }
         else {
-            score = 2 * (scores[my_runner] - scores[op_runner]) 
-                    - distance(&pods[my_blocker], &pods[op_runner]) 
-                    - distance(&pods[my_blocker], &checkpoints[pods[op_runner].nx_cp]);
+            my_runner = my_id + 1;
+            my_blocker = my_id;
         }
+
+        if(scores[op_id] > scores[op_id + 1]) {
+            op_runner = op_id;
+        }
+        else {
+            op_runner = op_id + 1;
+        }
+
+        score = 10 * (scores[my_runner] - scores[op_runner]) 
+                - 1.0f * distance(&pods[my_blocker], &pods[op_runner]); 
 
         return score;
     }
