@@ -6,7 +6,7 @@
 #pragma GCC target("aes,pclmul,rdrnd")                           // encryption
 #pragma GCC target("avx,avx2,f16c,fma,sse3,ssse3,sse4.1,sse4.2") // SIMD
 
-#include <math.h>
+#include <cmath>
 
 #include "genetic.h"
 
@@ -28,14 +28,14 @@ int main() {
     best_genes[0].randomize();
     best_genes[1].randomize();
 
-    for(int turn = 0; ; turn++) {
+    for(; ; TURN++) {
 
         arena.read();
 
-        if(turn == 0) {
+        if(TURN == 0) {
             for(int i = 0; i < ALL_PODS; i++) {
-                arena.pods[i].ang = atan2(arena.checkpoints[arena.pods[i].nx_cp].y - arena.pods[i].y,
-                                          arena.checkpoints[arena.pods[i].nx_cp].x - arena.pods[i].x);
+                arena.pods[i].angle = atan2f(arena.checkpoints[arena.pods[i].cp_next].y - arena.pods[i].y,
+                                            arena.checkpoints[arena.pods[i].cp_next].x - arena.pods[i].x);
             }
         }
 
@@ -43,7 +43,7 @@ int main() {
 
         timer.start();
 
-        float max_time = turn == 0 ? 1000 : 75;
+        float max_time = TURN == 0 ? 1000 : 75;
 
         op_solver.solve(best_genes, 1, max_time * 0.15f);
 
@@ -55,13 +55,13 @@ int main() {
         my_solver.solve(op_gen, 0, max_time * 0.95f);
 
         for(int i = 0; i < PODS_PER_PLAYER; i++) {
-            std::cout << int(arena.pods[i].x + 1000 * cos(arena.pods[i].ang + my_solver.pop[0][i].angle[0])) << ' ';
-            std::cout << int(arena.pods[i].y + 1000 * sin(arena.pods[i].ang + my_solver.pop[0][i].angle[0])) << ' ';
+            std::cout << int(arena.pods[i].x + 5000 * cosf(arena.pods[i].angle + my_solver.pop[0][i].angle[0])) << ' ';
+            std::cout << int(arena.pods[i].y + 5000 * sinf(arena.pods[i].angle + my_solver.pop[0][i].angle[0])) << ' ';
 
             if(my_solver.pop[0][i].thrust[0] == -1)
                 std::cout << "SHIELD";
             else {
-                if(turn == 0)
+                if(TURN == 0)
                     std::cout << "BOOST";
                 else
                     std::cout << my_solver.pop[0][i].thrust[0];

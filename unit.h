@@ -1,7 +1,7 @@
 #ifndef UNIT_H
 #define UNIT_H
 
-#include <math.h>
+#include <cmath>
 
 #include "const.h"
 
@@ -12,82 +12,70 @@ struct Unit {
     float vx;
     float vy;
 
-    float ang;
+    float angle;
 
-    int nx_cp;
+    int cp_next;
+    int cp_pass;
 
     int shield;
     int boosted;
 
-    float px;
-    float py;
-
-    float backup[8];
-
-    void cache() {
-        px = x;
-        py = y;
+    void move(float dt) {
+        x += vx * dt;
+        y += vy * dt;
     }
 
-    void save() {
-        backup[0] = x;
-        backup[1] = y;
-        backup[2] = vx;
-        backup[3] = vy;
-        backup[4] = ang;
-        backup[5] = shield;
-        backup[6] = boosted;
-        backup[7] = nx_cp;
+    void rotate(float by) {
+        angle += by;
+
+        if(angle < 0)
+            angle += TAU;
+        if(angle >= TAU)
+            angle += TAU;
     }
 
-    void load() {
-        x = backup[0];
-        y = backup[1];
-        vx = backup[2];
-        vy = backup[3];
-        ang = backup[4];
-        shield = backup[5];
-        boosted = backup[6];
-        nx_cp = backup[7];
-    }
-
-    void move(float t) {
-        x += vx * t;
-        y += vy * t;
-    }
-
-    void rotate(float new_ang) {
-        ang += new_ang;
-
-        if(ang < 0)     ang += TAU;
-        if(ang >= TAU)  ang -= TAU;
-    }
-
-    void thrust(int t) {
+    void thrust(int value) {
         if(shield == 0) {
-            vx += cos(ang) * t;
-            vy += sin(ang) * t;
+            vx += cosf(angle) * value;
+            vy += sinf(angle) * value;
         }
     }
     
     void end_round() {
-         x = int(x + 0.5f);
-         y = int(y + 0.5f);
+         x = roundf(x);
+         y = roundf(y);
         vx = int(vx * 0.85f);
         vy = int(vy * 0.85f);
     
         if(shield)  --shield;
     }
+
+    float cache[9];
+
+    void save() {
+        cache[0] = x;
+        cache[1] = y;
+        cache[2] = vx;
+        cache[3] = vy;
+        cache[4] = angle;
+        cache[5] = cp_next;
+        cache[6] = cp_pass;
+        cache[7] = shield;
+        cache[8] = boosted;
+    }
+
+    void load() {
+        x        = cache[0];
+        y        = cache[1];
+        vx       = cache[2];
+        vy       = cache[3];
+        angle    = cache[4];
+        cp_next  = cache[5];
+        cp_pass  = cache[6];
+        shield   = cache[7];
+        boosted  = cache[8];
+    }
 };
-
-bool collide(const Unit *p, const Unit *q) {
-
-    float dx = p->x - q->x;
-    float dy = p->y - q->y;
-    
-    return dx * dx + dy * dy <= 640000.0f;
-
-}
 
 bool predict_collision(const Unit *p, const Unit *q, float *collision_time) {
 
@@ -109,7 +97,7 @@ bool predict_collision(const Unit *p, const Unit *q, float *collision_time) {
 
     if(d <= 0.0f)   return false;
 
-    *collision_time = (- b - sqrt(d)) / a;
+    *collision_time = (- b - sqrtf(d)) / a;
 
     return 0 < *collision_time;
 
@@ -144,13 +132,24 @@ void simulate_bounce(Unit *p, Unit *q) {
 
 }
 
-bool checkpoint_complete(const Unit *pod, const Unit *cp) {
+bool checkpoint_complete(const Unit *pod, const Unit *cp, float dt) {
 
-    float d1x = cp->x - pod->x;
-    float d1y = cp->y - pod->y;
+    float ax = pod->x;
+    float ay = pod->y;
+    float bx = pod->x + pod->vx * dt;
+    float by = pod->y + pod->vy * dt;
+    float px = cp->x;
+    float py = cp->y;
 
-    return d1x * d1x + d1y * d1y <= 360000.0f;
-    
+    if((bx - ax) * (px - ax) + (by - ay) * (py - ay) > 0.0f &&
+       (ax - bx) * (px - bx) + (ay - by) * (py - by) > 0.0f) {
+        return ((bx - ax) * (ay - py) - (by - ay) * (ax - px)) * ((bx - ax) * (ay - py) - (by - ay) * (ax - px)) <= 
+               ((ax - bx) * (ax - bx) + (ay - by) * (ay - by)) * 360000.0f;
+    }
+
+    return (ax - px) * (ax - px) + (ay - py) * (ay - py) <= 360000.0f ||
+           (bx - px) * (bx - px) + (by - py) * (by - py) <  360000.0f;
+
 }
 
 float distance(const Unit *p, const Unit *q) {
@@ -158,7 +157,26 @@ float distance(const Unit *p, const Unit *q) {
     float dx = p->x - q->x;
     float dy = p->y - q->y;
 
-    return sqrt(dx * dx + dy * dy);
+    return sqrtf(dx * dx + dy * dy);
+
+}
+
+float diff_angle(const Unit *p, const Unit *q) {
+
+    float angle = atan2(q->y - p->y, q->x - p->x);
+
+    float move = angle - p->angle;
+
+    if(move < 0)    move += TAU;
+    if(move >= TAU) move -= TAU;
+
+    float diff = 2 * move;
+
+    if(diff >= TAU) diff -= TAU;
+
+    diff -= move;
+
+    return diff > 0 ? + diff : - diff;
 
 }
 

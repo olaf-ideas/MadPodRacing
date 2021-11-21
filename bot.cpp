@@ -7,7 +7,7 @@
 #pragma GCC target("aes,pclmul,rdrnd")                           // encryption
 #pragma GCC target("avx,avx2,f16c,fma,sse3,ssse3,sse4.1,sse4.2") // SIMD
 
-#include <math.h>
+#include <cmath>
 
  // *** Start of: /home/olaf/codingame/MadPodRacing/genetic.h *** 
  #ifndef GENETIC_H
@@ -73,8 +73,9 @@
   
   
   const int GEN_LEN = 4;
-  const int POP_LEN = 8;
-  const int CP_REWARD = 60'000;
+  const int POP_LEN = 5;
+  
+        int TURN = 0;
   
   #endif // CONST_H
   // *** End of: /home/olaf/codingame/MadPodRacing/const.h *** 
@@ -88,7 +89,7 @@
    #ifndef UNIT_H
    #define UNIT_H
    
-   #include <math.h>
+   #include <cmath>
    
    
    struct Unit {
@@ -98,82 +99,70 @@
        float vx;
        float vy;
    
-       float ang;
+       float angle;
    
-       int nx_cp;
+       int cp_next;
+       int cp_pass;
    
        int shield;
        int boosted;
    
-       float px;
-       float py;
-   
-       float backup[8];
-   
-       void cache() {
-           px = x;
-           py = y;
+       void move(float dt) {
+           x += vx * dt;
+           y += vy * dt;
        }
    
-       void save() {
-           backup[0] = x;
-           backup[1] = y;
-           backup[2] = vx;
-           backup[3] = vy;
-           backup[4] = ang;
-           backup[5] = shield;
-           backup[6] = boosted;
-           backup[7] = nx_cp;
+       void rotate(float by) {
+           angle += by;
+   
+           if(angle < 0)
+               angle += TAU;
+           if(angle >= TAU)
+               angle += TAU;
        }
    
-       void load() {
-           x = backup[0];
-           y = backup[1];
-           vx = backup[2];
-           vy = backup[3];
-           ang = backup[4];
-           shield = backup[5];
-           boosted = backup[6];
-           nx_cp = backup[7];
-       }
-   
-       void move(float t) {
-           x += vx * t;
-           y += vy * t;
-       }
-   
-       void rotate(float new_ang) {
-           ang += new_ang;
-   
-           if(ang < 0)     ang += TAU;
-           if(ang >= TAU)  ang -= TAU;
-       }
-   
-       void thrust(int t) {
+       void thrust(int value) {
            if(shield == 0) {
-               vx += cos(ang) * t;
-               vy += sin(ang) * t;
+               vx += cosf(angle) * value;
+               vy += sinf(angle) * value;
            }
        }
        
        void end_round() {
-            x = int(x + 0.5f);
-            y = int(y + 0.5f);
+            x = roundf(x);
+            y = roundf(y);
            vx = int(vx * 0.85f);
            vy = int(vy * 0.85f);
        
            if(shield)  --shield;
        }
+   
+       float cache[9];
+   
+       void save() {
+           cache[0] = x;
+           cache[1] = y;
+           cache[2] = vx;
+           cache[3] = vy;
+           cache[4] = angle;
+           cache[5] = cp_next;
+           cache[6] = cp_pass;
+           cache[7] = shield;
+           cache[8] = boosted;
+       }
+   
+       void load() {
+           x        = cache[0];
+           y        = cache[1];
+           vx       = cache[2];
+           vy       = cache[3];
+           angle    = cache[4];
+           cp_next  = cache[5];
+           cp_pass  = cache[6];
+           shield   = cache[7];
+           boosted  = cache[8];
+       }
    };
-   
-   bool collide(const Unit *p, const Unit *q) {
-   
-       float dx = p->x - q->x;
-       float dy = p->y - q->y;
-       
-       return dx * dx + dy * dy <= 640000.0f;
-   
-   }
    
    bool predict_collision(const Unit *p, const Unit *q, float *collision_time) {
    
@@ -195,7 +184,7 @@
    
        if(d <= 0.0f)   return false;
    
-       *collision_time = (- b - sqrt(d)) / a;
+       *collision_time = (- b - sqrtf(d)) / a;
    
        return 0 < *collision_time;
    
@@ -230,13 +219,24 @@
    
    }
    
-   bool checkpoint_complete(const Unit *pod, const Unit *cp) {
+   bool checkpoint_complete(const Unit *pod, const Unit *cp, float dt) {
    
-       float d1x = cp->x - pod->x;
-       float d1y = cp->y - pod->y;
+       float ax = pod->x;
+       float ay = pod->y;
+       float bx = pod->x + pod->vx * dt;
+       float by = pod->y + pod->vy * dt;
+       float px = cp->x;
+       float py = cp->y;
    
-       return d1x * d1x + d1y * d1y <= 360000.0f;
-       
+       if((bx - ax) * (px - ax) + (by - ay) * (py - ay) > 0.0f &&
+          (ax - bx) * (px - bx) + (ay - by) * (py - by) > 0.0f) {
+           return ((bx - ax) * (ay - py) - (by - ay) * (ax - px)) * ((bx - ax) * (ay - py) - (by - ay) * (ax - px)) <= 
+                  ((ax - bx) * (ax - bx) + (ay - by) * (ay - by)) * 360000.0f;
+       }
+   
+       return (ax - px) * (ax - px) + (ay - py) * (ay - py) <= 360000.0f ||
+              (bx - px) * (bx - px) + (by - py) * (by - py) <  360000.0f;
+   
    }
    
    float distance(const Unit *p, const Unit *q) {
@@ -244,7 +244,26 @@
        float dx = p->x - q->x;
        float dy = p->y - q->y;
    
-       return sqrt(dx * dx + dy * dy);
+       return sqrtf(dx * dx + dy * dy);
+   
+   }
+   
+   float diff_angle(const Unit *p, const Unit *q) {
+   
+       float angle = atan2(q->y - p->y, q->x - p->x);
+   
+       float move = angle - p->angle;
+   
+       if(move < 0)    move += TAU;
+       if(move >= TAU) move -= TAU;
+   
+       float diff = 2 * move;
+   
+       if(diff >= TAU) diff -= TAU;
+   
+       diff -= move;
+   
+       return diff > 0 ? + diff : - diff;
    
    }
    
@@ -258,73 +277,16 @@
   
       int laps;
       int checkpoints_count;
-      Unit checkpoints[ALL_CHECKPOINTS * MAX_LAPS];
-  
-      void init() {
-          std::cin >> laps; std::cin.ignore();
-          std::cin >> checkpoints_count; std::cin.ignore();
-          for(int i = 0; i < checkpoints_count; i++) {
-              std::cin >> checkpoints[i].x >> checkpoints[i].y; std::cin.ignore();
-          }
-  
-          laps++;
-  
-          for(int i = checkpoints_count; i < checkpoints_count * laps; i++) {
-              checkpoints[i].x = checkpoints[i - checkpoints_count].x;
-              checkpoints[i].y = checkpoints[i - checkpoints_count].y;
-          }
-  
-          checkpoints_count *= laps;
-  
-      }
-  
-      void read() {
-          
-          for(int i = 0; i < ALL_PODS; i++) {
-              int nx_cp = 0;
-              std::cin >> pods[i].x >> 
-                          pods[i].y >> 
-                          pods[i].vx >> 
-                          pods[i].vy >> 
-                          pods[i].ang >> 
-                          nx_cp; std::cin.ignore();
-              
-              if(pods[i].nx_cp % (checkpoints_count / laps) != nx_cp) {
-                  pods[i].nx_cp ++;
-              }
-  
-              pods[i].ang *= PI / 180.0f;
-          }
-  
-      }
-  
-      void print() {
-  
-          for(int i = 0; i < ALL_PODS; i++) {
-              std::cerr << "pod : " << i << '\n';
-              std::cerr << " x = " << pods[i].x << '\n';
-              std::cerr << " y = " << pods[i].y << '\n';
-              std::cerr << "vx = " << pods[i].vx << '\n';
-              std::cerr << "vy = " << pods[i].vy << '\n';
-              std::cerr << "nx = " << pods[i].nx_cp << '\n';
-              std::cerr << " a = " << pods[i].ang << '\n';
-              std::cerr << " b = " << pods[i].boosted << '\n';
-              std::cerr << "----\n";
-          }
-  
-      }
+      
+      Unit checkpoints[ALL_CHECKPOINTS];
   
       void tick() {
   
           float t = 0.0f;
   
-          for(int i = 0; i < ALL_PODS; i++)
-              pods[i].cache();
-  
           while(t < 1.0f) {
   
               Unit *p, *q;
-  
               float collision_time = 1.0f - t;
   
               for(int i = 0; i < ALL_PODS; i++) {
@@ -342,12 +304,17 @@
               }
               
               for(int i = 0; i < ALL_PODS; i++) {
+                  if(checkpoint_complete(&pods[i], &checkpoints[pods[i].cp_next], collision_time)) {
+                      if(++pods[i].cp_next == checkpoints_count)
+                          pods[i].cp_next = 0;
+                      pods[i].cp_pass ++;
+                  }
                   pods[i].move(collision_time);
               }
   
               t += collision_time;
   
-              if(t >= 1.0f)  break;
+              if(t == 1.0f)    break;
   
               simulate_bounce(p, q);
   
@@ -355,13 +322,6 @@
   
           for(int i = 0; i < ALL_PODS; i++) {
               pods[i].end_round();
-              
-              if(pods[i].nx_cp < checkpoints_count &&
-                  checkpoint_complete(&pods[i], &checkpoints[pods[i].nx_cp])) {
-                  if(++pods[i].nx_cp == checkpoints_count) {
-                      pods[i].nx_cp = 0;
-                  }
-              }
           }
   
       }
@@ -373,7 +333,7 @@
           static float scores[4];
   
           for(int i = 0; i < ALL_PODS; i++) {
-              scores[i] = pods[i].nx_cp * CP_REWARD - distance(&pods[i], &checkpoints[pods[i].nx_cp]);
+              scores[i] = pods[i].cp_pass * 100'000 - distance(&pods[i], &checkpoints[pods[i].cp_next]);
           }
   
           int my_runner, op_runner, my_blocker;
@@ -393,12 +353,76 @@
           else {
               op_runner = op_id + 1;
           }
-          
-          score = 3 * (scores[my_runner] - scores[op_runner]) 
-                  - 1.0f  * distance(&pods[my_blocker], &pods[op_runner]) 
-                  - 0.03f * distance(&pods[my_blocker], &checkpoints[pods[op_runner].nx_cp]);
   
+          if(pods[my_runner].cp_pass == checkpoints_count * laps + 1) {
+              return +1e8;
+          }
+          else
+          if(pods[op_runner].cp_pass == checkpoints_count * laps + 1) {
+              return -1e8;
+          }
+          score = + 10 * (scores[my_runner] - scores[op_runner]) 
+                  - 2.0f    * distance(&pods[my_blocker], &pods[op_runner])
+                  - 1.0f    * distance(&pods[op_runner], &checkpoints[pods[op_runner].cp_next])
+                  - 10.0f * diff_angle(&pods[my_runner], &checkpoints[pods[my_runner].cp_next]);
+                  
           return score;
+  
+      }
+  
+      void init() {
+  
+          std::cin >> laps; std::cin.ignore();
+          std::cin >> checkpoints_count; std::cin.ignore();
+          
+          for(int i = 0; i < checkpoints_count; i++) {
+              std::cin >> checkpoints[i].x >> checkpoints[i].y; std::cin.ignore();
+          }
+  
+      }
+  
+      void read() {
+          
+          for(int i = 0; i < ALL_PODS; i++) {
+  
+              int cp_next;
+  
+              std::cin >> pods[i].x >>
+                          pods[i].y >>
+                          pods[i].vx >>
+                          pods[i].vy >> 
+                          pods[i].angle >>
+                          cp_next;
+  
+              std::cin.ignore();
+  
+              if(cp_next != pods[i].cp_next) {
+                  pods[i].cp_next = cp_next;
+                  pods[i].cp_pass ++;
+              }
+  
+              pods[i].angle *= PI / 180.0f;
+          }
+  
+      }
+  
+      void print() {
+  
+          for(int i = 0; i < ALL_PODS; i++) {
+  
+              std::cerr << "id = " << i << '\n';
+              std::cerr << " x = " << pods[i].x << '\n';
+              std::cerr << " y = " << pods[i].y << '\n';
+              std::cerr << "vx = " << pods[i].vx << '\n';
+              std::cerr << "vy = " << pods[i].vy << '\n';
+              std::cerr << "nx = " << pods[i].cp_next << '\n';
+              std::cerr << "pa = " << pods[i].cp_pass << '\n';
+              std::cerr << " a = " << pods[i].angle << '\n';
+              std::cerr << " b = " << pods[i].boosted << '\n';
+              std::cerr << "----\n";
+          
+          }
+  
       }
   
   };
@@ -425,7 +449,12 @@
   }
   
   float fast_float_rand() {
-      return fast_rand() / float(FAST_RAND_MAX);
+      union {
+          unsigned int i;
+          float f;
+      } pun = { 0x3F800000U | (rand() >> 8) };
+  
+      return pun.f - 1.0f;
   }
   
   float fast_float_rand(float a, float b) {
@@ -442,25 +471,42 @@
  
      void randomize() {
          for(int i = 0; i < GEN_LEN; i++) {
-             thrust[i] = fast_rand(0, 10) * fast_rand(0, 10);
-             angle[i] = fast_float_rand(-MAX_ROTATION_PER_TURN, +MAX_ROTATION_PER_TURN);
+             thrust[i] = fast_rand(0, 400);
+ 
+             if(thrust[i] > 100) thrust[i] = 100;
+ 
+             float ang = fast_float_rand(-0.6f, +0.6f);
+             if(ang < -MAX_ROTATION_PER_TURN)    ang = -MAX_ROTATION_PER_TURN;
+             if(ang > +MAX_ROTATION_PER_TURN)    ang = +MAX_ROTATION_PER_TURN;
+ 
+             angle[i] = ang;
+         }
+ 
+         if(TURN == 0) {
+             thrust[0] = 650;
          }
      }
  
      void mutate() {
  
-         if(fast_rand() & 1) {
-             if(fast_rand() < 7 * FAST_RAND_MAX) {
-                 thrust[fast_rand() % GEN_LEN] = -1;
-             }
-             else {
-                 thrust[fast_rand() % GEN_LEN] = fast_rand(0, 10) * fast_rand(0, 10);
-             }
+         if(fast_rand() < 7 * FAST_RAND_MAX) {
+             thrust[fast_rand() % GEN_LEN] = -1;
          }
          else {
-             angle[fast_rand() % GEN_LEN] = fast_float_rand(-MAX_ROTATION_PER_TURN, +MAX_ROTATION_PER_TURN);
+             int i = fast_rand() % GEN_LEN;
+             thrust[i] = fast_rand(0, 500);
+             if(thrust[i] > 100) {
+                 thrust[i] = 100;
+             }
          }
  
+         int i = fast_rand() % GEN_LEN;
+ 
+         float ang = fast_float_rand(-1.0f, +1.0f);
+         if(ang < -MAX_ROTATION_PER_TURN)    ang = -MAX_ROTATION_PER_TURN;
+         if(ang > +MAX_ROTATION_PER_TURN)    ang = +MAX_ROTATION_PER_TURN;
+ 
+         angle[i] = ang;
      }
  
      void shift() {
@@ -468,13 +514,28 @@
              thrust[i] = thrust[i + 1];
              angle[i] = angle[i + 1];
          }
-         thrust[GEN_LEN - 1] = fast_rand(0, 10) * fast_rand(0, 10);
-         angle[GEN_LEN - 1] = fast_float_rand(-MAX_ROTATION_PER_TURN, +MAX_ROTATION_PER_TURN);
+         thrust[GEN_LEN - 1] = fast_rand(0, 500);
+         if(thrust[GEN_LEN - 1] > 100)
+             thrust[GEN_LEN - 1] = 100;
+ 
+         float ang = fast_float_rand(-1.0f, +1.0f);
+         if(ang < -MAX_ROTATION_PER_TURN)    ang = -MAX_ROTATION_PER_TURN;
+         if(ang > +MAX_ROTATION_PER_TURN)    ang = +MAX_ROTATION_PER_TURN;
+ 
+         angle[GEN_LEN - 1] = ang;
+     }
+ 
+     void merge(const Gen &a, const Gen &b) {
+     
+         float x = fast_float_rand();
+         for(int i = 0; i < GEN_LEN; i++) {
+             thrust[i] = a.thrust[i] * x + b.thrust[i] * (1 - x);
+             angle[i]  = a.angle [i] * x + b.angle [i] * (1 - x);
+         }
+ 
      }
  
  };
- 
- float max(float a, float b) { return a > b ? a : b; }
  
  struct Genetic {
  
@@ -540,11 +601,16 @@
  
          int steps = 0;
  
+         float best_overall = -1e18f;
+ 
          while(timer.get_elapsed() < time) {
  
-             float best_score = -1e88;
+             float best_score = -1e18f;
              int best_index = -1;
-             float worse_score = +1e88;
+             float nd_score = -1e18f;
+             int nd_index = -1;
+ 
+             float worse_score = +1e18f;
              int worse_index = -1;
  
              for(int i = 0; i < POP_LEN; i++) {
@@ -553,14 +619,27 @@
                  gens[my_id + 1] = &pop[i][1];
  
                  if(i > 1) {
-                     pop[i][fast_rand() & 1].mutate();
+                     pop[i][0].mutate();
+                     if(fast_rand() & 1) pop[i][0].mutate();
+                     pop[i][1].mutate();
+                     if(fast_rand() & 1) pop[i][1].mutate();
                  }
  
                  float score = play(gens, my_id, op_id);
                  
                  if(best_index == -1 || best_score < score) {
+ 
+                     nd_index = best_index;
+                     nd_score = best_score;
+                     
                      best_index = i;
                      best_score = score;
+ 
+                 }
+                 else
+                 if(nd_index == -1 || nd_score < score) {
+                     nd_score = score;
+                     nd_index = i;
                  }
  
                  if(worse_index == -1 || worse_score > score) {
@@ -571,8 +650,14 @@
              }
  
              if(worse_index != best_index) {
-                 pop[worse_index][0].randomize();
-                 pop[worse_index][1].randomize();
+                 if(fast_rand() < 100) {
+                     pop[worse_index][0].randomize();
+                     pop[worse_index][1].randomize();
+                 }
+                 else {
+                     pop[worse_index][0].merge(pop[best_index][0], pop[nd_index][0]);
+                     pop[worse_index][1].merge(pop[best_index][1], pop[nd_index][1]);
+                 }
              }
  
              Gen tmp[PODS_PER_PLAYER];
@@ -586,10 +671,15 @@
              pop[0][0] = tmp[0];
              pop[0][1] = tmp[1];
  
+             if(best_score > best_overall) {
+                 best_overall = best_score;
+             }
+ 
              steps++;
  
          }
  
+         std::cerr << "best : " << best_overall << '\n';
          std::cerr << "steps: " << steps << '\n';
  
      }
@@ -618,14 +708,14 @@ int main() {
     best_genes[0].randomize();
     best_genes[1].randomize();
 
-    for(int turn = 0; ; turn++) {
+    for(; ; TURN++) {
 
         arena.read();
 
-        if(turn == 0) {
+        if(TURN == 0) {
             for(int i = 0; i < ALL_PODS; i++) {
-                arena.pods[i].ang = atan2(arena.checkpoints[arena.pods[i].nx_cp].y - arena.pods[i].y,
-                                          arena.checkpoints[arena.pods[i].nx_cp].x - arena.pods[i].x);
+                arena.pods[i].angle = atan2f(arena.checkpoints[arena.pods[i].cp_next].y - arena.pods[i].y,
+                                            arena.checkpoints[arena.pods[i].cp_next].x - arena.pods[i].x);
             }
         }
 
@@ -633,7 +723,7 @@ int main() {
 
         timer.start();
 
-        float max_time = turn == 0 ? 1000 : 75;
+        float max_time = TURN == 0 ? 1000 : 75;
 
         op_solver.solve(best_genes, 1, max_time * 0.15f);
 
@@ -645,13 +735,13 @@ int main() {
         my_solver.solve(op_gen, 0, max_time * 0.95f);
 
         for(int i = 0; i < PODS_PER_PLAYER; i++) {
-            std::cout << int(arena.pods[i].x + 1000 * cos(arena.pods[i].ang + my_solver.pop[0][i].angle[0])) << ' ';
-            std::cout << int(arena.pods[i].y + 1000 * sin(arena.pods[i].ang + my_solver.pop[0][i].angle[0])) << ' ';
+            std::cout << int(arena.pods[i].x + 5000 * cosf(arena.pods[i].angle + my_solver.pop[0][i].angle[0])) << ' ';
+            std::cout << int(arena.pods[i].y + 5000 * sinf(arena.pods[i].angle + my_solver.pop[0][i].angle[0])) << ' ';
 
             if(my_solver.pop[0][i].thrust[0] == -1)
                 std::cout << "SHIELD";
             else {
-                if(turn == 0)
+                if(TURN == 0)
                     std::cout << "BOOST";
                 else
                     std::cout << my_solver.pop[0][i].thrust[0];

@@ -27,7 +27,8 @@ const float MAX_ROTATION_PER_TURN = PI / 10;
 
 
 const int GEN_LEN = 4;
-const int POP_LEN = 8;
-const int CP_REWARD = 60'000;
+const int POP_LEN = 5;
+
+      int TURN = 0;
 
 #endif // CONST_H

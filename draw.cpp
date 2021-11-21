@@ -138,6 +138,10 @@ int main() {
 
         arena.tick();
 
+        for(int i = 0; i < 4; i++) {
+            std::cerr << arena.pods[i].x << ' ' << arena.pods[i].y << ' ' << arena.pods[i].vx << ' ' << arena.pods[i].vy << ' ' << arena.pods[i].ang << '\n';
+        }
+
         window.clear();
 
         for(CheckpointShape &cp : checkpoints) {
@@ -151,6 +155,8 @@ int main() {
         }
 
         window.display();
+
+        while(true);
 
     }
 
